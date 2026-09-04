@@ -1,0 +1,11 @@
+{
+  "name": "VocaBite",
+  "description": "A polished AI voice food ordering experience powered by Gemini and Rime TTS with automatic interruption and real-time order recovery.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
+
