@@ -43,7 +43,7 @@ export default function App() {
     hasGeminiKey: true,
     hasRimeKey: false,
     hasLiveKit: false,
-    geminiModel: 'gemini-2.0-flash',
+    geminiModel: 'gemini-3.6-flash',
     rimeSpeaker: 'marsh',
   });
 
@@ -179,6 +179,7 @@ export default function App() {
   }, []);
 
   const handleProcessUserUtterance = useCallback(async (utteranceText: string) => {
+    await ttsServiceRef.current.initialize?.();
     if (conversationAgentRef.current) {
       await conversationAgentRef.current.processUtterance(utteranceText);
     }

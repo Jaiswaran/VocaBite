@@ -120,11 +120,6 @@ export async function processOrderWithGemini(
     throw new Error('GEMINI_API_KEY environment variable is not configured.');
   }
 
-  let model = 'gemini-2.0-flash';
-  if (!model.includes('gemini')) {
-    model = 'gemini-2.0-flash';
-  }
-
   const systemInstruction = `
 You are the voice assistant for an authentic food ordering kitchen called "VocaBite".
 You converse naturally with humans speaking aloud. Keep spoken responses concise (1-2 sentences), friendly, warm, and natural. Do not repeat the entire order unless asked.
@@ -160,116 +155,129 @@ ${JSON.stringify(currentOrder.items, null, 2)}
     finalPrompt = `[NOTE: I interrupted your previous message: "${interruptionContext.previousAssistantUtterance}"]\n` + finalPrompt;
   }
 
-  const chat = client.chats.create({
-    model,
-    config: {
-      systemInstruction,
-      tools: [{ functionDeclarations }],
-      temperature: 0.2, // Low temp for more deterministic tool use
-    },
-    history: contents,
-  });
+  const candidateModels = ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+  let lastError: any = null;
 
-  let response = await chat.sendMessage({ message: finalPrompt });
-  let orderActions: OrderAction[] = [];
-  let intent: 'add_item' | 'modify_item' | 'remove_item' | 'query_menu' | 'confirm_order' | 'small_talk' | 'correction' | 'unknown' = 'unknown';
+  for (const model of candidateModels) {
+    try {
+      const chat = client.chats.create({
+        model,
+        config: {
+          systemInstruction,
+          tools: [{ functionDeclarations }],
+          temperature: 0.2, // Low temp for more deterministic tool use
+        },
+        history: contents,
+      });
 
-  // Tool execution loop (max 5 iterations to prevent infinite loops)
-  for (let i = 0; i < 5; i++) {
-    const functionCalls = response.functionCalls;
-    if (!functionCalls || functionCalls.length === 0) {
-      break;
-    }
+      let response = await chat.sendMessage({ message: finalPrompt });
+      let orderActions: OrderAction[] = [];
+      let intent: 'add_item' | 'modify_item' | 'remove_item' | 'query_menu' | 'confirm_order' | 'small_talk' | 'correction' | 'unknown' = 'unknown';
 
-    const functionResponses: any[] = [];
-    
-    for (const call of functionCalls) {
-      const { name, args } = call;
-      let result: any = { error: 'Unknown function' };
-
-      try {
-        if (name === 'search_menu') {
-          const query = (args.query as string).toLowerCase();
-          const matches = MENU_ITEMS.filter(item => 
-            item.name.toLowerCase().includes(query) || 
-            item.category.toLowerCase().includes(query) ||
-            item.description.toLowerCase().includes(query)
-          );
-          result = { matches: matches.map(m => ({ id: m.id, name: m.name, price: m.price, spice: m.allowSpiceCustomization })) };
-          if (matches.length > 0) intent = 'query_menu';
-        } else if (name === 'add_to_cart') {
-          const menuItemId = args.menuItemId as string;
-          const qty = args.quantity as number;
-          const spice = args.spiceLevel as 'mild'|'medium'|'spicy'|'extra_spicy';
-          const menuItem = MENU_ITEMS.find(m => m.id === menuItemId);
-          if (!menuItem) {
-            result = { error: 'Invalid menuItemId. Use search_menu to find correct IDs.' };
-          } else {
-            const tempCartItemId = uuidv4();
-            orderActions.push({
-              type: 'ADD_ITEM',
-              menuItemId,
-              name: menuItem.name,
-              quantity: qty,
-              spiceLevel: spice || menuItem.defaultSpiceLevel || 'medium'
-            });
-            result = { success: true, cartItemId: tempCartItemId, message: 'Added to pending actions.' };
-            intent = 'add_item';
-          }
-        } else if (name === 'remove_from_cart') {
-          orderActions.push({
-            type: 'REMOVE_ITEM',
-            cartItemId: args.cartItemId as string | undefined,
-            menuItemId: args.menuItemId as string | undefined,
-            name: args.name as string | undefined
-          });
-          result = { success: true, message: 'Removed in pending actions.' };
-          intent = 'remove_item';
-        } else if (name === 'update_quantity') {
-          orderActions.push({
-            type: 'UPDATE_QUANTITY',
-            cartItemId: args.cartItemId as string | undefined,
-            name: args.name as string | undefined,
-            quantity: args.newQuantity as number
-          });
-          result = { success: true };
-          intent = 'modify_item';
-        } else if (name === 'update_customization') {
-          orderActions.push({
-            type: 'UPDATE_CUSTOMIZATION',
-            cartItemId: args.cartItemId as string,
-            spiceLevel: args.spiceLevel as any
-          });
-          result = { success: true };
-          intent = 'modify_item';
-        } else if (name === 'clear_order') {
-          orderActions.push({ type: 'CLEAR_ORDER' });
-          result = { success: true };
-          intent = 'remove_item';
-        } else if (name === 'confirm_order') {
-          orderActions.push({ type: 'SET_STATUS', status: 'confirmed' });
-          result = { success: true };
-          intent = 'confirm_order';
+      // Tool execution loop (max 5 iterations to prevent infinite loops)
+      for (let i = 0; i < 5; i++) {
+        const functionCalls = response.functionCalls;
+        if (!functionCalls || functionCalls.length === 0) {
+          break;
         }
-      } catch (err: any) {
-        result = { error: err.message };
+
+        const functionResponses: any[] = [];
+        
+        for (const call of functionCalls) {
+          const { name, args } = call;
+          let result: any = { error: 'Unknown function' };
+
+          try {
+            if (name === 'search_menu') {
+              const query = (args.query as string).toLowerCase();
+              const matches = MENU_ITEMS.filter(item => 
+                item.name.toLowerCase().includes(query) || 
+                item.category.toLowerCase().includes(query) ||
+                item.description.toLowerCase().includes(query)
+              );
+              result = { matches: matches.map(m => ({ id: m.id, name: m.name, price: m.price, spice: m.allowSpiceCustomization })) };
+              if (matches.length > 0) intent = 'query_menu';
+            } else if (name === 'add_to_cart') {
+              const menuItemId = args.menuItemId as string;
+              const qty = args.quantity as number;
+              const spice = args.spiceLevel as 'mild'|'medium'|'spicy'|'extra_spicy';
+              const menuItem = MENU_ITEMS.find(m => m.id === menuItemId);
+              if (!menuItem) {
+                result = { error: 'Invalid menuItemId. Use search_menu to find correct IDs.' };
+              } else {
+                const tempCartItemId = uuidv4();
+                orderActions.push({
+                  type: 'ADD_ITEM',
+                  menuItemId,
+                  name: menuItem.name,
+                  quantity: qty,
+                  spiceLevel: spice || menuItem.defaultSpiceLevel || 'medium'
+                });
+                result = { success: true, cartItemId: tempCartItemId, message: 'Added to pending actions.' };
+                intent = 'add_item';
+              }
+            } else if (name === 'remove_from_cart') {
+              orderActions.push({
+                type: 'REMOVE_ITEM',
+                cartItemId: args.cartItemId as string | undefined,
+                menuItemId: args.menuItemId as string | undefined,
+                name: args.name as string | undefined
+              });
+              result = { success: true, message: 'Removed in pending actions.' };
+              intent = 'remove_item';
+            } else if (name === 'update_quantity') {
+              orderActions.push({
+                type: 'UPDATE_QUANTITY',
+                cartItemId: args.cartItemId as string | undefined,
+                name: args.name as string | undefined,
+                quantity: args.newQuantity as number
+              });
+              result = { success: true };
+              intent = 'modify_item';
+            } else if (name === 'update_customization') {
+              orderActions.push({
+                type: 'UPDATE_CUSTOMIZATION',
+                cartItemId: args.cartItemId as string,
+                spiceLevel: args.spiceLevel as any
+              });
+              result = { success: true };
+              intent = 'modify_item';
+            } else if (name === 'clear_order') {
+              orderActions.push({ type: 'CLEAR_ORDER' });
+              result = { success: true };
+              intent = 'remove_item';
+            } else if (name === 'confirm_order') {
+              orderActions.push({ type: 'SET_STATUS', status: 'confirmed' });
+              result = { success: true };
+              intent = 'confirm_order';
+            }
+          } catch (err: any) {
+            result = { error: err.message };
+          }
+
+          functionResponses.push({
+            functionResponse: {
+              id: call.id,
+              name: call.name,
+              response: result
+            }
+          });
+        }
+
+        response = await chat.sendMessage({ message: functionResponses });
       }
 
-      functionResponses.push({
-        functionResponse: {
-          id: call.id,
-          name: call.name,
-          response: result
-        }
-      });
+      return {
+        assistantReply: response.text || "I'm sorry, I didn't quite get that.",
+        intent,
+        orderActions,
+      };
+    } catch (err: any) {
+      console.warn(`[GeminiService] Model ${model} failed:`, err.message);
+      lastError = err;
+      // try next candidate model
     }
-
-    response = await chat.sendMessage({ message: functionResponses });
   }
 
-  return {
-    assistantReply: response.text || "I'm sorry, I didn't quite get that.",
-    intent,
-    orderActions,
-  };
+  throw lastError || new Error('All Gemini candidate models failed to process the request.');
 }

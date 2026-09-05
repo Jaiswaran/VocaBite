@@ -23,7 +23,7 @@ async function startServer() {
         rime: !!process.env.RIME_API_KEY,
         livekit: !!(process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
       },
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3.6-flash',
     });
   });
 
@@ -32,7 +32,7 @@ async function startServer() {
       hasGeminiKey: !!process.env.GEMINI_API_KEY,
       hasRimeKey: !!process.env.RIME_API_KEY,
       hasLiveKit: !!(process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
-      geminiModel: 'gemini-2.0-flash',
+      geminiModel: 'gemini-3.6-flash',
       rimeSpeaker: 'marsh',
     });
   });
