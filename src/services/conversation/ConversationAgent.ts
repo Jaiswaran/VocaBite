@@ -47,6 +47,9 @@ export class ConversationAgent {
   private onTurnComplete?: (turnId: string) => void;
   private onErrorCb?: (error: Error) => void;
 
+  private lastProcessedUtterance: string = '';
+  private lastProcessedTime: number = 0;
+
   constructor(options: ConversationAgentOptions) {
     this.stt = options.stt;
     this.llm = options.llm;
@@ -92,7 +95,17 @@ export class ConversationAgent {
    * Main entry point for a user utterance (from STT or text input).
    */
   async processUtterance(text: string): Promise<void> {
-    if (!text.trim()) return;
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
+    
+    // Prevent duplicate processing of the exact same utterance within 2 seconds
+    if (this.lastProcessedUtterance === trimmedText && Date.now() - this.lastProcessedTime < 2000) {
+      console.log(`[ConversationAgent] Ignoring duplicate utterance: ${trimmedText}`);
+      return;
+    }
+    
+    this.lastProcessedUtterance = trimmedText;
+    this.lastProcessedTime = Date.now();
     
     // We do not allow multiple active responses. Abort current one.
     this.cancelActiveResponse();

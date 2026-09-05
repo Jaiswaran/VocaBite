@@ -56,25 +56,27 @@ const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'remove_from_cart',
-    description: 'Remove an item from the cart completely.',
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        cartItemId: { type: Type.STRING, description: 'The unique cart item ID (not the menu ID).' }
-      },
-      required: ['cartItemId']
-    }
-  },
-  {
-    name: 'update_quantity',
-    description: 'Change the quantity of an existing item in the cart.',
+    description: 'Remove an item from the cart. You can provide either the cartItemId (preferred), menuItemId, or the name of the item.',
     parameters: {
       type: Type.OBJECT,
       properties: {
         cartItemId: { type: Type.STRING, description: 'The unique cart item ID.' },
+        menuItemId: { type: Type.STRING, description: 'The menu item ID.' },
+        name: { type: Type.STRING, description: 'The name of the item to remove.' }
+      }
+    }
+  },
+  {
+    name: 'update_quantity',
+    description: 'Change the quantity of an existing item in the cart. You can provide either the cartItemId (preferred), or the name of the item.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        cartItemId: { type: Type.STRING, description: 'The unique cart item ID.' },
+        name: { type: Type.STRING, description: 'The name of the item to update.' },
         newQuantity: { type: Type.INTEGER, description: 'The new quantity.' }
       },
-      required: ['cartItemId', 'newQuantity']
+      required: ['newQuantity']
     }
   },
   {
@@ -118,9 +120,9 @@ export async function processOrderWithGemini(
     throw new Error('GEMINI_API_KEY environment variable is not configured.');
   }
 
-  let model = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+  let model = 'gemini-2.0-flash';
   if (!model.includes('gemini')) {
-    model = 'gemini-3.1-pro-preview';
+    model = 'gemini-2.0-flash';
   }
 
   const systemInstruction = `
@@ -217,14 +219,17 @@ ${JSON.stringify(currentOrder.items, null, 2)}
         } else if (name === 'remove_from_cart') {
           orderActions.push({
             type: 'REMOVE_ITEM',
-            cartItemId: args.cartItemId as string
+            cartItemId: args.cartItemId as string | undefined,
+            menuItemId: args.menuItemId as string | undefined,
+            name: args.name as string | undefined
           });
           result = { success: true, message: 'Removed in pending actions.' };
           intent = 'remove_item';
         } else if (name === 'update_quantity') {
           orderActions.push({
             type: 'UPDATE_QUANTITY',
-            cartItemId: args.cartItemId as string,
+            cartItemId: args.cartItemId as string | undefined,
+            name: args.name as string | undefined,
             quantity: args.newQuantity as number
           });
           result = { success: true };

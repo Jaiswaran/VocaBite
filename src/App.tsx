@@ -43,7 +43,7 @@ export default function App() {
     hasGeminiKey: true,
     hasRimeKey: false,
     hasLiveKit: false,
-    geminiModel: 'gemini-3.1-pro-preview',
+    geminiModel: 'gemini-2.0-flash',
     rimeSpeaker: 'marsh',
   });
 
@@ -70,6 +70,7 @@ export default function App() {
 
   const isAiSpeakingRef = useRef(false);
   const aiSpeakStartTimeRef = useRef(0);
+  const isSttPatchedRef = useRef(false);
 
   useEffect(() => {
     isAiSpeakingRef.current = agentState === 'SPEAKING';
@@ -196,61 +197,50 @@ export default function App() {
         await audioServiceRef.current.startCapture((data) => {
           setVolume(data.volume);
           setFrequencies(data.frequencies);
-
-          // VAD Automatic Barge-in Check (Energy threshold when AI is talking)
-          const hasGracePeriodPassed = Date.now() - aiSpeakStartTimeRef.current > 1000;
-          if (data.volume > 0.4 && isAiSpeakingRef.current && hasGracePeriodPassed) {
-            interruptionControllerRef.current.triggerBargeIn({
-              interruptedAtMs: Date.now(),
-              aiUtteranceSnippet: 'AI audio cut off by voice activity energy',
-              triggerType: 'vad_threshold',
-            });
-          }
         });
 
         // Patch STT event listeners to also trigger barge in via audio activity/speech events
-        const originalStartListening = sttServiceRef.current.startListening.bind(sttServiceRef.current);
-        sttServiceRef.current.startListening = async (onRes, onStart, onEnd, onError) => {
-          return originalStartListening(
-            (event) => {
-              setDetectedSpeechSnippet(event.transcript);
-              const hasGracePeriodPassed = Date.now() - aiSpeakStartTimeRef.current > 1000;
+        if (!isSttPatchedRef.current) {
+          const originalStartListening = sttServiceRef.current.startListening.bind(sttServiceRef.current);
+          sttServiceRef.current.startListening = async (onRes, onStart, onEnd, onError) => {
+            return originalStartListening(
+              (event) => {
+                setDetectedSpeechSnippet(event.transcript);
+                
+                // Use a longer grace period (800ms) to ignore the initial echo of the AI speaking
+                const hasGracePeriodPassed = Date.now() - aiSpeakStartTimeRef.current > 800;
+                // Only barge in if the transcript has actual content (length > 2) to ignore random noise/coughs
+                const hasActualSpeech = event.transcript && event.transcript.trim().length > 2;
 
-              if (isAiSpeakingRef.current && hasGracePeriodPassed) {
-                interruptionControllerRef.current.triggerBargeIn({
-                  interruptedAtMs: Date.now(),
-                  aiUtteranceSnippet: 'AI speech interrupted by speech recognition event',
-                  userSpeechSnippet: event.transcript,
-                  triggerType: 'stt_partial_text',
-                });
-              }
+                if (isAiSpeakingRef.current && hasGracePeriodPassed && hasActualSpeech) {
+                  interruptionControllerRef.current.triggerBargeIn({
+                    interruptedAtMs: Date.now(),
+                    aiUtteranceSnippet: 'AI speech interrupted by speech recognition event',
+                    userSpeechSnippet: event.transcript,
+                    triggerType: 'stt_partial_text',
+                  });
+                }
 
-              onRes(event);
+                onRes(event);
 
-              if (event.isFinal) {
-                setDetectedSpeechSnippet('');
-              }
-            },
-            () => {
-              const hasGracePeriodPassed = Date.now() - aiSpeakStartTimeRef.current > 1000;
-              if (isAiSpeakingRef.current && hasGracePeriodPassed) {
-                interruptionControllerRef.current.triggerBargeIn({
-                  interruptedAtMs: Date.now(),
-                  aiUtteranceSnippet: 'Speech start event detected',
-                  triggerType: 'stt_speech_start',
-                });
-              }
-              if (onStart) onStart();
-            },
-            onEnd,
-            onError
-          );
-        };
+                if (event.isFinal) {
+                  setDetectedSpeechSnippet('');
+                }
+              },
+              () => {
+                if (onStart) onStart();
+              },
+              onEnd,
+              onError
+            );
+          };
+          isSttPatchedRef.current = true;
+        }
 
         await conversationAgentRef.current?.startListening();
       } catch (err: any) {
         console.error('Failed to start microphone audio:', err);
-        setStatusText(err.message || 'Microphone access denied.');
+        setStatusText('Microphone permission denied. Please allow microphone access or open the app in a new tab.');
       }
     }
   };

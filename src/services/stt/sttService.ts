@@ -14,7 +14,7 @@ export class WebSpeechSTTService implements STTService {
   private isListeningActive: boolean = false;
   private options: STTOptions = {
     language: 'en-US',
-    continuous: true,
+    continuous: false,
     interimResults: true,
   };
 
@@ -63,7 +63,7 @@ export class WebSpeechSTTService implements STTService {
 
     try {
       this.recognition = new SpeechRecognitionClass();
-      this.recognition.continuous = this.options.continuous ?? true;
+      this.recognition.continuous = this.options.continuous ?? false;
       this.recognition.interimResults = this.options.interimResults ?? true;
       this.recognition.lang = this.options.language ?? 'en-US';
 

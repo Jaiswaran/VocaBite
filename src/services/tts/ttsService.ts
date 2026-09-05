@@ -116,64 +116,22 @@ export class RimeTTSProvider implements TTSService {
                 reject(err);
               }
             });
-          } else if (data.fallbackToBrowser) {
-            console.log('[RimeTTSProvider] Falling back to browser TTS:', data.message);
-            return this.fallbackToBrowser(text, options);
           } else {
              console.error('[RimeTTSProvider] TTS_ERROR: No audio returned from Rime');
+             options.onError?.(new Error(data.message || 'No audio returned from Rime'));
              throw new Error(data.message || 'No audio returned from Rime');
           }
         } else {
           console.error(`[RimeTTSProvider] TTS_ERROR: Rime API responded with status ${response.status}`);
-          return this.fallbackToBrowser(text, options);
+          options.onError?.(new Error(`Rime API Error: ${response.status}`));
+          throw new Error(`Rime API Error: ${response.status}`);
         }
       } catch (err: any) {
         console.error('[RimeTTSProvider] TTS_ERROR: Rime server unavailable or failed:', err);
-        return this.fallbackToBrowser(text, options);
+        options.onError?.(err);
+        throw err;
       }
     }
-  }
-
-  private async fallbackToBrowser(text: string, options: TTSSpeakOptions): Promise<void> {
-    if (typeof window === 'undefined' || !window.speechSynthesis) {
-       this._isSpeaking = false;
-       options.onError?.(new Error('Browser TTS not supported'));
-       return;
-    }
-    
-    return new Promise((resolve, reject) => {
-      const activeToken = options.responseId || options.generationToken;
-      const utterance = new SpeechSynthesisUtterance(text);
-      
-      utterance.onstart = () => {
-        if (this.currentToken !== activeToken) {
-          window.speechSynthesis.cancel();
-          return;
-        }
-        options.onStart?.();
-      };
-      
-      utterance.onend = () => {
-        this._isSpeaking = false;
-        if (this.currentToken === activeToken) {
-          options.onEnd?.();
-        }
-        resolve();
-      };
-      
-      utterance.onerror = (e) => {
-        this._isSpeaking = false;
-        if (e.error === 'interrupted') {
-          options.onInterrupted?.();
-          resolve();
-        } else {
-          options.onError?.(new Error(e.error || 'Browser TTS failed'));
-          reject(new Error(e.error));
-        }
-      };
-      
-      window.speechSynthesis.speak(utterance);
-    });
   }
 
   async speak(text: string, options: TTSSpeakOptions, config?: Partial<TTSVoiceConfig>): Promise<void> {

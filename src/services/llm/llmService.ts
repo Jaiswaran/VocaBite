@@ -3,7 +3,7 @@ import { findMenuItemByNameOrQuery, MENU_ITEMS } from '../order/menu';
 import { OrderAction, SpiceLevel } from '../order/types';
 
 export class GeminiAndMockLLMService implements LLMService {
-  readonly id = 'llm-gemini-3.1-pro-preview';
+  readonly id = 'llm-gemini-2.0-flash';
   readonly modelName = 'Gemini 3.7 Flash & Fallback Parser';
 
   async processUtterance(payload: LLMRequestPayload, signal?: AbortSignal): Promise<LLMResponsePayload> {
