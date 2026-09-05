@@ -95,6 +95,8 @@ export class ConversationAgent {
    * Main entry point for a user utterance (from STT or text input).
    */
   async processUtterance(text: string): Promise<void> {
+    const transcriptReadyTime = Date.now();
+    console.log(`[LATENCY] Speech End / Transcript Ready at ${transcriptReadyTime}`);
     const trimmedText = text.trim();
     if (!trimmedText) return;
     
@@ -131,12 +133,15 @@ export class ConversationAgent {
     this.activeResponseId = responseId;
 
     try {
-      const response = await this.llm.processUtterance({
+      const llmStartTime = Date.now();
+    const response = await this.llm.processUtterance({
         userUtterance: text,
         conversationHistory: this.messages, // including current user msg
         currentOrder: this.orderManager.state,
         generationToken,
       }, this.activeAbortController.signal);
+    const llmEndTime = Date.now();
+    console.log(`[LATENCY] AI Response received. LLM Latency: ${llmEndTime - llmStartTime}ms`);
 
       // Verify token hasn't been invalidated by barge-in
       if (!this.interruptionController.isTokenValid(generationToken)) {
@@ -153,6 +158,8 @@ export class ConversationAgent {
       // Apply actions to OrderManager
       if (response.orderActions && response.orderActions.length > 0) {
         this.orderManager.applyActions(response.orderActions);
+        const orderUpdateTime = Date.now();
+        console.log(`[LATENCY] Order Updated. Time from transcript: ${orderUpdateTime - transcriptReadyTime}ms`);
       }
 
       const assistantMsg: ChatMessage = {
@@ -167,11 +174,13 @@ export class ConversationAgent {
 
       // Play audio response
       this.setState('SPEAKING');
+      const ttsStartTime = Date.now();
 
       await this.tts.speak(response.assistantReply, {
         generationToken,
         responseId,
         onStart: () => {
+          console.log(`[LATENCY] Rime Audio Started. Total latency from speech end: ${Date.now() - transcriptReadyTime}ms`);
           if (this.interruptionController.isTokenValid(generationToken) && this.activeResponseId === responseId) {
             this.setState('SPEAKING');
           }

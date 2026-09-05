@@ -43,7 +43,7 @@ export default function App() {
     hasGeminiKey: true,
     hasRimeKey: false,
     hasLiveKit: false,
-    geminiModel: 'gemini-3.6-flash',
+    geminiModel: 'gemini-2.5-flash',
     rimeSpeaker: 'marsh',
   });
 

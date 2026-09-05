@@ -82,6 +82,8 @@ export class WebSpeechSTTService implements STTService {
         onSpeechEnd?.();
       };
 
+      let silenceTimer: any = null;
+
       this.recognition.onresult = (event: any) => {
         let interimTranscript = '';
         let finalTranscript = '';
@@ -109,10 +111,29 @@ export class WebSpeechSTTService implements STTService {
             confidence: highestConfidence,
             rawEvent: event,
           });
+
+          // Aggressive silence detection for early turn completion
+          if (silenceTimer) clearTimeout(silenceTimer);
+          
+          if (!finalTranscript) {
+            silenceTimer = setTimeout(() => {
+              if (this.isListeningActive) {
+                console.log('[WebSpeechSTT] Silence timeout reached, forcing final transcript.');
+                this.recognition.abort(); // Abort to force restart and clear buffer
+                onResult({
+                  transcript: text.trim(),
+                  isFinal: true,
+                  confidence: highestConfidence,
+                  rawEvent: event,
+                });
+              }
+            }, 800); // 800ms silence timeout
+          }
         }
       };
 
       this.recognition.onerror = (event: any) => {
+        if (silenceTimer) clearTimeout(silenceTimer);
         // Ignore "no-speech" as standard pause in continuous listening
         if (event.error === 'no-speech') {
           return;

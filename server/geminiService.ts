@@ -109,12 +109,90 @@ const functionDeclarations: FunctionDeclaration[] = [
   }
 ];
 
+import { findMenuItemByNameOrQuery } from '../src/services/order/menu';
 export async function processOrderWithGemini(
   userUtterance: string,
   history: ChatMessage[],
   currentOrder: OrderState,
   interruptionContext?: { previousAssistantUtterance: string; interruptedAtMs: number }
 ): Promise<UnderstandOrderResult> {
+  const norm = userUtterance.toLowerCase().trim();
+  
+  // Fast path for simple "Add X" or "Remove X" to bypass LLM latency
+  if (norm.startsWith('add') || norm.startsWith('i want') || norm.startsWith('give me')) {
+    const itemQuery = norm.replace(/add|i want|give me|a |an |one |two |three /g, '').trim();
+    const item = findMenuItemByNameOrQuery(itemQuery);
+    if (item) {
+      let qty = 1;
+      if (norm.includes('two')) qty = 2;
+      if (norm.includes('three')) qty = 3;
+      if (norm.includes('four')) qty = 4;
+      if (norm.match(/\b2\b/)) qty = 2;
+      if (norm.match(/\b3\b/)) qty = 3;
+      if (norm.match(/\b4\b/)) qty = 4;
+      
+      return {
+        assistantReply: `I've added ${qty} ${item.name} to your order.`,
+        intent: 'add_item',
+        orderActions: [{
+          type: 'ADD_ITEM',
+          menuItemId: item.id,
+          name: item.name,
+          quantity: qty,
+          spiceLevel: item.defaultSpiceLevel || 'medium'
+        }]
+      };
+    }
+  }
+
+    if (norm.startsWith('remove') || norm.startsWith('delete') || norm.startsWith('take off')) {
+    const itemQuery = norm.replace(/remove|delete|take off|the |my /g, '').trim();
+    const item = findMenuItemByNameOrQuery(itemQuery);
+    if (item) {
+      const inCart = currentOrder.items.find(i => i.menuItemId === item.id);
+      if (inCart) {
+        return {
+          assistantReply: `I've removed the ${item.name} from your order.`,
+          intent: 'remove_item',
+          orderActions: [{
+            type: 'REMOVE_ITEM',
+            cartItemId: inCart.cartItemId,
+          }]
+        };
+      } else {
+        return {
+          assistantReply: `You don't have ${item.name} in your order.`,
+          intent: 'remove_item',
+          orderActions: []
+        };
+      }
+    }
+  }
+
+  // Fast path for quantity update (e.g., "make it two", "change it to 3")
+  if (norm.includes('make it ') || norm.includes('change it to ')) {
+      const lastItem = currentOrder.items[currentOrder.items.length - 1];
+      if (lastItem) {
+          let qty = lastItem.quantity;
+          if (norm.includes('one') || norm.includes('1')) qty = 1;
+          if (norm.includes('two') || norm.includes('2')) qty = 2;
+          if (norm.includes('three') || norm.includes('3')) qty = 3;
+          if (norm.includes('four') || norm.includes('4')) qty = 4;
+          
+          if (qty !== lastItem.quantity) {
+              return {
+                  assistantReply: `Updated ${lastItem.name} to ${qty}.`,
+                  intent: 'modify_item',
+                  orderActions: [{
+                      type: 'UPDATE_QUANTITY',
+                      cartItemId: lastItem.cartItemId,
+                      quantity: qty
+                  }]
+              };
+          }
+      }
+  }
+
   const client = getGeminiClient();
   if (!client) {
     throw new Error('GEMINI_API_KEY environment variable is not configured.');
@@ -140,9 +218,12 @@ ${JSON.stringify(currentOrder.items, null, 2)}
   // We need to exclude the latest user message from the history array, 
   // as it will be sent separately via chat.sendMessage(finalPrompt).
   // Also, ensure no text part is completely empty to prevent 400 errors.
-  const historyForGemini = history.length > 0 && history[history.length - 1].role === 'user' && history[history.length - 1].content === userUtterance
+  let historyForGemini = history.length > 0 && history[history.length - 1].role === 'user' && history[history.length - 1].content === userUtterance
     ? history.slice(0, -1)
     : history;
+    
+  // OPTIMIZATION: Only send the last 2 turns to minimize latency
+  historyForGemini = historyForGemini.slice(-2);
 
   const contents = historyForGemini.map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
@@ -155,7 +236,7 @@ ${JSON.stringify(currentOrder.items, null, 2)}
     finalPrompt = `[NOTE: I interrupted your previous message: "${interruptionContext.previousAssistantUtterance}"]\n` + finalPrompt;
   }
 
-  const candidateModels = ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+  const candidateModels = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-flash-latest'];
   let lastError: any = null;
 
   for (const model of candidateModels) {
