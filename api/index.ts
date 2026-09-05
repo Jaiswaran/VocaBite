@@ -79,7 +79,7 @@ app.post('/api/order/understand', async (req, res) => {
       const response = await fetch('https://users.rime.ai/v1/rime-tts', {
         method: 'POST',
         headers: {
-          'Accept': 'audio/mp3',
+          'Accept': 'audio/mpeg',
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
@@ -96,7 +96,7 @@ app.post('/api/order/understand', async (req, res) => {
         return res.status(response.status).json({ error: `Rime API Error: ${errText}` });
       }
 
-      res.setHeader('Content-Type', 'audio/mp3');
+      res.setHeader('Content-Type', 'audio/mpeg');
       const { Readable } = await import('stream');
       if (response.body) {
          Readable.fromWeb(response.body).pipe(res);
@@ -125,7 +125,7 @@ app.post('/api/order/understand', async (req, res) => {
     const response = await fetch('https://users.rime.ai/v1/rime-tts', {
       method: 'POST',
       headers: {
-        'Accept': 'audio/mp3',
+        'Accept': 'audio/mpeg',
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
@@ -142,7 +142,7 @@ app.post('/api/order/understand', async (req, res) => {
       return res.status(response.status).json({ error: `Rime API Error: ${errText}` });
     }
 
-    res.setHeader('Content-Type', 'audio/mp3');
+    res.setHeader('Content-Type', 'audio/mpeg');
     const { Readable } = require('stream');
     if (response.body) {
        Readable.fromWeb(response.body).pipe(res);

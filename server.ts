@@ -93,7 +93,7 @@ async function startServer() {
       const response = await fetch('https://users.rime.ai/v1/rime-tts', {
         method: 'POST',
         headers: {
-          'Accept': 'audio/mp3',
+          'Accept': 'audio/mpeg',
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
@@ -110,7 +110,7 @@ async function startServer() {
         return res.status(response.status).json({ error: `Rime API Error: ${errText}` });
       }
 
-      res.setHeader('Content-Type', 'audio/mp3');
+      res.setHeader('Content-Type', 'audio/mpeg');
       const { Readable } = await import('stream');
       if (response.body) {
          Readable.fromWeb(response.body).pipe(res);
@@ -140,7 +140,7 @@ async function startServer() {
       const response = await fetch('https://users.rime.ai/v1/rime-tts', {
         method: 'POST',
         headers: {
-          'Accept': 'audio/mp3',
+          'Accept': 'audio/mpeg',
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
@@ -160,7 +160,7 @@ async function startServer() {
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       
-      res.setHeader('Content-Type', 'audio/mp3');
+      res.setHeader('Content-Type', 'audio/mpeg');
       res.setHeader('Content-Length', buffer.length);
       res.send(buffer);
     } catch (error: any) {
