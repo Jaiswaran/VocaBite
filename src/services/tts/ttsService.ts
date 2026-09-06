@@ -6,8 +6,6 @@ export class RimeTTSProvider implements TTSService {
   private _isSpeaking: boolean = false;
   private audioContext: AudioContext | null = null;
   private audioSource: AudioBufferSourceNode | null = null;
-  private audioElement: HTMLAudioElement | null = null;
-  private activeBlobUrl: string | null = null;
   private currentToken: string = '';
 
   get isSpeaking(): boolean {
@@ -15,20 +13,21 @@ export class RimeTTSProvider implements TTSService {
   }
 
   async initialize(): Promise<void> {
-    if (typeof window !== 'undefined') {
-      try {
-        if (!this.audioContext) {
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          if (AudioContextClass) {
-            this.audioContext = new AudioContextClass();
-          }
+    if (typeof window === 'undefined') return;
+
+    try {
+      if (!this.audioContext) {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          this.audioContext = new AudioContextClass();
         }
-        if (this.audioContext && this.audioContext.state === 'suspended') {
-          await this.audioContext.resume();
-        }
-      } catch (err) {
-        console.warn('[RimeTTSProvider] initialize error:', err);
       }
+
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
+    } catch (err) {
+      console.warn('[RimeTTSProvider] initialize error:', err);
     }
   }
 
@@ -42,7 +41,11 @@ export class RimeTTSProvider implements TTSService {
     }
   }
 
-  async synthesizeAndStream(text: string, options: TTSSpeakOptions, config?: Partial<TTSVoiceConfig>): Promise<void> {
+  async synthesizeAndStream(
+    text: string,
+    options: TTSSpeakOptions,
+    config?: Partial<TTSVoiceConfig>
+  ): Promise<void> {
     this.stop('reset');
 
     if (!text || !text.trim()) return;
@@ -51,118 +54,147 @@ export class RimeTTSProvider implements TTSService {
     const activeToken = options.responseId || options.generationToken;
     this.currentToken = activeToken;
 
-    if (typeof window !== 'undefined') {
-      try {
-        // Ensure AudioContext is initialized and active
-        await this.initialize();
+    if (typeof window === 'undefined') return;
 
-        console.log('[RimeTTSProvider] TTS_REQUEST_STARTED: Requesting audio for:', text);
-                const url = `/api/tts/rime?text=${encodeURIComponent(text)}&speaker=${config?.speakerId || 'marsh'}&speed=${config?.speed || 1.0}`;
-        
-        return new Promise<void>((resolve, reject) => {
-            const audio = new Audio(url);
-            this.audioElement = audio;
-            audio.onplay = () => {
-                console.log('[RimeTTSProvider] TTS_PLAYBACK_STARTED (HTMLAudio Native Stream)');
-                this._isSpeaking = true;
-                options.onStart?.();
-            };
-            audio.onended = () => {
-                console.log('[RimeTTSProvider] TTS_PLAYBACK_ENDED');
-                this._isSpeaking = false;
-                this.audioElement = null;
-                if (this.currentToken === activeToken) {
-                    options.onEnd?.();
-                }
-                resolve();
-            };
-            audio.onerror = (err) => {
-                console.error('[RimeTTSProvider] HTMLAudio error:', err);
-                this._isSpeaking = false;
-                this.audioElement = null;
-                options.onError?.(new Error('HTMLAudio playback failed'));
-                reject(err);
-            };
-            
-            // Check again before playback
-            if (this.currentToken !== activeToken) {
-                console.log('[RimeTTSProvider] STALE_AUDIO_DISCARDED: Discarded before playback.');
-                resolve();
-                return;
-            }
-            
-            audio.play().catch(err => {
-                console.error('[RimeTTSProvider] Playback error:', err);
-                this._isSpeaking = false;
-                options.onError?.(err);
-                reject(err);
-            });
-        });
-      } catch (err: any) {
-        console.error('[RimeTTSProvider] TTS_ERROR: Rime server unavailable or failed:', err);
-        options.onError?.(err);
-        throw err;
+    try {
+      // The AudioContext is unlocked from the user's microphone/listening gesture
+      // in App.tsx. Unlike HTMLAudioElement.play(), AudioBuffer playback remains
+      // usable after the async STT -> Gemini/Rime round trip.
+      await this.initialize();
+
+      if (!this.audioContext) {
+        throw new Error('Web Audio API is not available in this browser.');
       }
+
+      if (this.audioContext.state !== 'running') {
+        await this.audioContext.resume();
+      }
+
+      if (this.currentToken !== activeToken) {
+        this._isSpeaking = false;
+        return;
+      }
+
+      const speaker = config?.speakerId || 'marsh';
+      const speed = config?.speed || 1.0;
+      const url = `/api/tts/rime?text=${encodeURIComponent(text)}&speaker=${encodeURIComponent(speaker)}&speed=${encodeURIComponent(String(speed))}`;
+
+      console.log('[RimeTTSProvider] TTS_REQUEST_STARTED: Requesting audio for:', text);
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'audio/mpeg' },
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown TTS error');
+        throw new Error(`Rime TTS request failed (${response.status}): ${errorText}`);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('audio/')) {
+        const errorText = await response.text().catch(() => 'Invalid audio response');
+        throw new Error(`Rime returned a non-audio response: ${errorText}`);
+      }
+
+      const audioBytes = await response.arrayBuffer();
+
+      if (this.currentToken !== activeToken) {
+        console.log('[RimeTTSProvider] STALE_AUDIO_DISCARDED: Response arrived after interruption.');
+        this._isSpeaking = false;
+        return;
+      }
+
+      const audioBuffer = await this.audioContext.decodeAudioData(audioBytes.slice(0));
+
+      if (this.currentToken !== activeToken) {
+        console.log('[RimeTTSProvider] STALE_AUDIO_DISCARDED: Audio decoded after interruption.');
+        this._isSpeaking = false;
+        return;
+      }
+
+      const source = this.audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(this.audioContext.destination);
+      this.audioSource = source;
+
+      source.onended = () => {
+        if (this.audioSource === source) {
+          this.audioSource = null;
+        }
+
+        this._isSpeaking = false;
+
+        if (this.currentToken === activeToken) {
+          console.log('[RimeTTSProvider] TTS_PLAYBACK_ENDED');
+          this.currentToken = '';
+          options.onEnd?.();
+        }
+      };
+
+      console.log('[RimeTTSProvider] TTS_PLAYBACK_STARTED (Web Audio)');
+      options.onStart?.();
+      source.start(0);
+    } catch (err: any) {
+      // An intentional interruption should not be reported as a TTS failure.
+      if (this.currentToken !== activeToken) {
+        this._isSpeaking = false;
+        return;
+      }
+
+      this._isSpeaking = false;
+      console.error('[RimeTTSProvider] TTS_ERROR:', err);
+      options.onError?.(err instanceof Error ? err : new Error(String(err)));
+      throw err;
     }
   }
 
-  private cleanupActiveUrl(): void {
-    if (this.activeBlobUrl) {
-      try {
-        URL.revokeObjectURL(this.activeBlobUrl);
-      } catch {}
-      this.activeBlobUrl = null;
-    }
-  }
-
-  async speak(text: string, options: TTSSpeakOptions, config?: Partial<TTSVoiceConfig>): Promise<void> {
+  async speak(
+    text: string,
+    options: TTSSpeakOptions,
+    config?: Partial<TTSVoiceConfig>
+  ): Promise<void> {
     return this.synthesizeAndStream(text, options, config);
   }
 
   stop(reason?: 'interrupted' | 'user_stopped' | 'reset'): void {
-    if (this._isSpeaking || this.audioSource || this.audioElement) {
+    if (this._isSpeaking || this.audioSource) {
       if (reason === 'interrupted') {
         console.log('[RimeTTSProvider] AUDIO_CANCELLED: TTS playback stopped due to interruption.');
       } else {
         console.log(`[RimeTTSProvider] AUDIO_CANCELLED: TTS playback stopped. Reason: ${reason}`);
       }
     }
-    
+
     this._isSpeaking = false;
     this.currentToken = '';
 
     if (this.audioSource) {
-      try {
-        this.audioSource.stop();
-        this.audioSource.disconnect();
-      } catch {}
+      const source = this.audioSource;
       this.audioSource = null;
-    }
-
-    if (this.audioElement) {
       try {
-        this.audioElement.pause();
-        this.audioElement.currentTime = 0;
-        this.audioElement.src = '';
-      } catch {}
-      this.audioElement = null;
+        source.onended = null;
+        source.stop(0);
+        source.disconnect();
+      } catch {
+        // The source may already have ended.
+      }
     }
-
-    this.cleanupActiveUrl();
   }
 
   pause(): void {
     if (this.audioContext && this.audioContext.state === 'running') {
-      this.audioContext.suspend();
+      void this.audioContext.suspend();
     }
   }
 
   resume(): void {
     if (this.audioContext && this.audioContext.state === 'suspended') {
-      this.audioContext.resume();
+      void this.audioContext.resume();
     }
   }
-  
+
   cleanup(): void {
     this.stop('reset');
   }
