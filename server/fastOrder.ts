@@ -3,7 +3,6 @@ import { OrderAction, OrderState } from '../src/services/order/types';
 
 export interface FastOrderResult { assistantReply: string; intent: 'add_item' | 'remove_item' | 'modify_item' | 'confirm_order'; orderActions: OrderAction[]; }
 const numberWords: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
-
 const aliases: Record<string, string[]> = {
   'biryani-chicken-dum': ['chicken biryani', 'chicken dum biryani', 'royal chicken dum biryani'],
   'biryani-lamb-shank': ['lamb biryani', 'mutton biryani', 'hyderabadi lamb biryani'],
@@ -18,13 +17,11 @@ const aliases: Record<string, string[]> = {
   'bev-mango-lassi': ['mango lassi', 'lassi'],
   'dessert-gulab-jamun': ['gulab jamun', 'jamun'],
 };
-
-function hasPhrase(text: string, phrase: string): boolean { return new RegExp(`(^|\\s)${phrase.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}(?=\\s|$)`, 'i').test(text); }
-function quantityFor(text: string, aliasesForItem: string[]): number {
-  for (const phrase of aliasesForItem) {
+function hasPhrase(text: string, phrase: string): boolean { return (` ${text} `).includes(` ${phrase} `); }
+function quantityFor(text: string, itemAliases: string[]): number {
+  for (const phrase of itemAliases) {
     for (const [word, value] of Object.entries(numberWords)) if (hasPhrase(text, `${word} ${phrase}`)) return value;
-    const digit = new RegExp(`\\b([1-5])\\s+${phrase.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'i').exec(text);
-    if (digit) return Number(digit[1]);
+    for (let n = 1; n <= 5; n++) if (hasPhrase(text, `${n} ${phrase}`)) return n;
   }
   return 1;
 }
@@ -42,9 +39,7 @@ export function tryFastOrder(utterance: string, currentOrder: OrderState): FastO
     const item = findMenuItemByNameOrQuery(query);
     if (item) {
       const inCart = currentOrder.items.find(i => i.menuItemId === item.id);
-      return inCart
-        ? { assistantReply: `I've removed the ${item.name} from your order.`, intent: 'remove_item', orderActions: [{ type: 'REMOVE_ITEM', cartItemId: inCart.id }] }
-        : { assistantReply: `You don't have ${item.name} in your order.`, intent: 'remove_item', orderActions: [] };
+      return inCart ? { assistantReply: `I've removed the ${item.name} from your order.`, intent: 'remove_item', orderActions: [{ type: 'REMOVE_ITEM', cartItemId: inCart.id }] } : { assistantReply: `You don't have ${item.name} in your order.`, intent: 'remove_item', orderActions: [] };
     }
   }
 
