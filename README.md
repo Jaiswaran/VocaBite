@@ -2,7 +2,7 @@
 
 A voice-first food ordering platform where customers can order food naturally by speaking aloud, with **automatic interruption and real-time order recovery**.
 
-## 🌟 Hackathon Differentiator: Automatic Interruption & Recovery
+## Automatic Interruption & Recovery
 
 Traditional voice assistants force users to wait for the bot to finish speaking or require pressing a manual "Stop" button before saying a correction.
 
