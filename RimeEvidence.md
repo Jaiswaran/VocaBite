@@ -145,7 +145,7 @@ Rime is therefore not limited to a welcome message or final confirmation; it is 
 | Configuration   | Value                             |
 | --------------- | --------------------------------- |
 | Model           | `mist`                            |
-| Speaker         | `marsh`                           |
+| Speaker         | `astra`                           |
 | Language        | English                           |
 | Endpoint/Region | Not specified                     |
 | Audio format    | MP3 / MPEG audio                  |
