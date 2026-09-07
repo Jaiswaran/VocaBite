@@ -496,9 +496,8 @@ The Express server currently exposes routes including:
 
 ## 🎥 Demo
 
-**Demo link:** Not specified in the repository.
+**Demo link:** https://voca-bite.vercel.app/
 
-For a hackathon submission, add the final public demo URL or demo video here once it is available.
 
 ## 📜 License
 
